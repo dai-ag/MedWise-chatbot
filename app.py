@@ -65,7 +65,7 @@ def generate_response(prompt_input, llm, is_medical):
         system_prompt = (
             "You are an assistant limited to medical topics. For non-medical queries, "
             "you give only brief (50-80 word) general responses and begin with: "
-            "'⚠️ I'm specialized in medical topics, but here's a brief answer to your question:'"
+            # "'⚠️ I'm specialized in medical topics, but here's a brief answer to your question:'"
         )
         assistant_intro = "⚠️ I'm specialized in medical topics, but here's a brief answer to your question:\n\n"
 
