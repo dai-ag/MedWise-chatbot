@@ -67,7 +67,7 @@ def generate_response(prompt_input, llm, is_medical):
             "you give only brief (50-80 word) general responses and begin with: "
             "'⚠️ I'm specialized in medical topics, but here's a brief answer to your question:'"
         )
-        # assistant_intro = "⚠️ I'm specialized in medical topics, but here's a brief answer to your question:\n\n"
+        assistant_intro = "⚠️ I'm specialized in medical topics, but here's a brief answer to your question:\n\n"
 
     string_dialogue = system_prompt
     for dict_message in st.session_state.messages:
