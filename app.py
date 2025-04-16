@@ -1,83 +1,104 @@
 import streamlit as st
-import subprocess
+import replicate
+import os
 
-# Page config
-st.set_page_config(page_title="🩺 MedWise Chatbot", layout="centered")
-st.title("🩺 MedWise - Your Friendly Health Chatbot")
+# App title
+st.set_page_config(page_title="💬 Promptwise Chatbot")
 
-# Medical keywords for filtering
-medical_keywords = [
-    "health", "doctor", "medicine", "symptom", "treatment", "cure", "disease",
-    "mental", "anxiety", "depression", "pain", "fever", "injury", "wellness",
-    "nutrition", "diet", "exercise", "fitness", "first aid", "hospital", "clinic"
-]
+# Replicate Credentials
+with st.sidebar:
+    st.title('💬 PromptWise Chatbot')
+    if 'REPLICATE_API_TOKEN' in st.secrets:
+        st.success('API key already provided!', icon='✅')
+        replicate_api = st.secrets['REPLICATE_API_TOKEN']
+    else:
+        replicate_api = st.text_input('Enter Replicate API token:', type='password')
+        if not (replicate_api.startswith('r8_') and len(replicate_api)==40):
+            st.warning('Please enter your credentials!', icon='⚠️')
+        else:
+            st.success('Proceed to entering your prompt message!', icon='👉')
+    os.environ['REPLICATE_API_TOKEN'] = replicate_api
 
-# Check if user input is medical
-def is_medical_query(text):
-    return any(word in text.lower() for word in medical_keywords)
+    st.subheader('Models and parameters')
+    selected_model = st.sidebar.selectbox('LLM model: ', [
+    'LLaMA 3 (8B Instruct)'
+    # 'Mixtral (8x7B Instruct)'
+    ], key='selected_model')
 
-# Query local Ollama LLaMA 3 model
-def query_ollama(prompt):
-    try:
-        result = subprocess.run(
-            ["ollama", "run", "llama3"],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=60
-        )
-        return result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        return "Response took too long. Try again."
-    except Exception as e:
-        return f"Error: {str(e)}"
+    if selected_model == 'LLaMA 3 (8B Instruct)':
+        llm = 'meta/meta-llama-3-8b-instruct'
+    elif selected_model == 'Mixtral (8x7B Instruct)':
+        llm = "mistralai/mixtral-8x7b-instruct-v0.1"
 
-# Initial message
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "Hi! I'm your medical assistant. How can I help you today?"}
-    ]
+    temperature = st.sidebar.slider('temperature', min_value=0.01, max_value=2.0, value=0.1, step=0.01)
+    top_p = st.sidebar.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
+    st.markdown("🤝🏻 Let's connect on [LinkedIn](https://www.linkedin.com/in/geetika-kanwar-61a33b223)!")
 
-# Display previous chat
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
 
-# Clear history button
+# Store LLM generated responses
+if "messages" not in st.session_state.keys():
+    st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
+
+# Display or clear chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
+
 def clear_chat_history():
-    st.session_state.messages = [
-        {"role": "assistant", "content": "Hi! I'm your medical assistant. How can I help you today?"}
-    ]
+    st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
+st.sidebar.button('Clear Chat History', on_click=clear_chat_history)
 
-st.sidebar.title("🩺 MedWise")
-st.sidebar.button("🧹 Clear Chat", on_click=clear_chat_history)
-st.sidebar.markdown("🤝🏻 [Let's connect on LinkedIn](https://www.linkedin.com/in/geetika-kanwar-61a33b223)")
+# Function for generating LLaMA2 response. Refactored from https://github.com/a16z-infra/llama2-chatbot
+def generate_llama2_response(prompt_input, llm):
+    string_dialogue = "You are a helpful assistant. You do not respond as 'User' or pretend to be 'User'. You only respond once as 'Assistant'."
+    for dict_message in st.session_state.messages:
+        if dict_message["role"] == "user":
+            string_dialogue += "User: " + dict_message["content"] + "\n\n"
+        else:
+            string_dialogue += "Assistant: " + dict_message["content"] + "\n\n"
+    if "llama" in llm.lower():
+        inputs = {
+            "prompt": f"{string_dialogue} {prompt_input} Assistant: ",
+            "temperature": temperature,
+            "top_p": top_p,
+            "system_prompt": "You are a helpful assistant."
+        }
+    elif "mixtral" in llm.lower():
+        inputs = {
+            "prompt": f"{string_dialogue} {prompt_input} Assistant: ",
+            "temperature": temperature,
+            "top_p": top_p,
+            "system_prompt": "You are a helpful assistant."
+        }
+    else:
+        inputs = {
+            "prompt": f"{string_dialogue} {prompt_input} Assistant: ",
+            "temperature": temperature,
+            "top_p": top_p,
+            "repetition_penalty": 1
+        }
 
-# User input
-user_input = st.chat_input("Ask me a medical question...")
+    output = replicate.run(llm, input=inputs)
 
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
+
+    return output
+
+# User-provided prompt
+if prompt := st.chat_input(disabled=not replicate_api):
+    st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
-        st.markdown(user_input)
+        st.write(prompt)
 
+# Generate a new response if last message is not from assistant
+if st.session_state.messages[-1]["role"] != "assistant":
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-
-            if is_medical_query(user_input):
-                system_prompt = (
-                    "You are a helpful and friendly medical assistant. "
-                    "Give general health advice, info about symptoms, mental wellness, or first aid. "
-                    "Don't diagnose or prescribe. Always suggest visiting a certified doctor.\n\n"
-                    f"User: {user_input}\n\nAssistant:"
-                )
-                response = query_ollama(system_prompt)
-            else:
-                polite_prompt = (
-                    f"I'm only trained to talk about health. But here's a brief, polite note on: {user_input} "
-                    "Keep it under 80 words."
-                )
-                response = query_ollama(polite_prompt)
-
-            st.markdown(response)
-            st.session_state.messages.append({"role": "assistant", "content": response})
+            response = generate_llama2_response(prompt, llm)
+            placeholder = st.empty()
+            full_response = ''
+            for item in response:
+                full_response += item
+                placeholder.markdown(full_response)
+            placeholder.markdown(full_response)
+    message = {"role": "assistant", "content": full_response}
+    st.session_state.messages.append(message)
