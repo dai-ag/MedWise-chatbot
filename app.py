@@ -7,104 +7,99 @@ st.set_page_config(page_title="🩺 MedWise Chatbot")
 
 # Replicate Credentials
 with st.sidebar:
-    st.title('🩺 MedWise Chatbot')
+    st.title('🩺 MedWise - Your Friendly Health Chatbot')
     if 'REPLICATE_API_TOKEN' in st.secrets:
         st.success('API key already provided!', icon='✅')
         replicate_api = st.secrets['REPLICATE_API_TOKEN']
     else:
         replicate_api = st.text_input('Enter Replicate API token:', type='password')
-        if not (replicate_api.startswith('r8_') and len(replicate_api)==40):
+        if not (replicate_api.startswith('r8_') and len(replicate_api) == 40):
             st.warning('Please enter your credentials!', icon='⚠️')
         else:
-            st.success('Proceed to entering your prompt message!', icon='👉')
+            st.success('Proceed to entering your query!', icon='👉')
     os.environ['REPLICATE_API_TOKEN'] = replicate_api
 
-    st.subheader('Models and Parameters')
-    selected_model = st.selectbox('LLM model:', [
+    st.subheader('Model and Parameters')
+    selected_model = st.sidebar.selectbox('LLM model: ', [
         'LLaMA 3 (8B Instruct)'
     ], key='selected_model')
 
     if selected_model == 'LLaMA 3 (8B Instruct)':
         llm = 'meta/meta-llama-3-8b-instruct'
 
-    temperature = st.slider('temperature', min_value=0.01, max_value=2.0, value=0.1, step=0.01)
-    top_p = st.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
+    temperature = st.sidebar.slider('temperature', min_value=0.01, max_value=2.0, value=0.1, step=0.01)
+    top_p = st.sidebar.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
     st.markdown("🤝🏻 Let's connect on [LinkedIn](https://www.linkedin.com/in/geetika-kanwar-61a33b223)!")
 
-# Store LLM generated responses
-if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Hello! I’m MedWise, your medical assistant. How can I help you today?"}]
+# Store chat history
+if "messages" not in st.session_state.keys():
+    st.session_state.messages = [{"role": "assistant", "content": "Hi! I'm your medical assistant. How can I help you today?"}]
 
-# Display chat messages
+# Display or clear chat messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
 def clear_chat_history():
-    st.session_state.messages = [{"role": "assistant", "content": "Hello! I’m MedWise, your medical assistant. How can I help you today?"}]
-st.sidebar.button('🧹 Clear Chat History', on_click=clear_chat_history)
+    st.session_state.messages = [{"role": "assistant", "content": "Hi! I'm your medical assistant. How can I help you today?"}]
+st.sidebar.button('Clear Chat History', on_click=clear_chat_history)
 
-# Function to check if prompt is medical-related
-def is_medical_topic(prompt):
+# Safety check for domain
+def is_medical_query(query):
     medical_keywords = [
-        "health", "disease", "symptom", "medicine", "treatment", "diagnosis", "therapy",
-        "doctor", "hospital", "surgery", "vaccine", "infection", "pain", "anatomy", "physiology",
-        "psychology", "pharmacology", "cardiology", "diabetes", "covid", "fever", "flu", "cancer",
-        "mental health", "depression", "nutrition", "exercise", "medical", "checkup", "illness"
+        "symptom", "medicine", "treatment", "mental", "health", "pain", "headache", "fever", "cold",
+        "flu", "diabetes", "asthma", "injury", "blood", "pressure", "stress", "anxiety", "cough",
+        "dose", "side effect", "doctor", "nurse", "burn", "cut", "wound", "first aid", "disease", "hospital",
+        "therapy", "nutrition", "exercise", "fitness", "body", "heart", "lungs", "cancer", "infection", "vaccine"
     ]
-    prompt_lower = prompt.lower()
-    return any(keyword in prompt_lower for keyword in medical_keywords)
+    return any(word.lower() in query.lower() for word in medical_keywords)
 
-# Function to generate model response
-def generate_llama_response(prompt_input, llm):
-    string_dialogue = "You are a helpful assistant focused only on medical topics."
+# Generate response
+def generate_response(prompt_input, llm, is_medical):
+    if is_medical:
+        system_prompt = (
+            "You are a professional medical assistant. Answer only medical questions in detail."
+        )
+        assistant_intro = ""
+    else:
+        system_prompt = (
+            "You are an assistant limited to medical topics. For non-medical queries, "
+            "you give only brief (50-80 word) general responses and begin with: "
+            "'⚠️ I'm specialized in medical topics, but here's a brief answer to your question:'"
+        )
+        assistant_intro = "⚠️ I'm specialized in medical topics, but here's a brief answer to your question:\n\n"
+
+    string_dialogue = system_prompt
     for dict_message in st.session_state.messages:
         if dict_message["role"] == "user":
-            string_dialogue += f"User: {dict_message['content']}\n"
+            string_dialogue += f"\n\nUser: {dict_message['content']}"
         else:
-            string_dialogue += f"Assistant: {dict_message['content']}\n"
-
-    if is_medical_topic(prompt_input):
-        final_prompt = f"{string_dialogue}\nUser: {prompt_input}\nAssistant:"
-    else:
-        final_prompt = (
-            f"{string_dialogue}\nUser: {prompt_input}\n"
-            "Assistant: I am a medical assistant and I specialize only in health-related topics. "
-            "However, here's a brief overview of your topic in 50–80 words:\n"
-        )
+            string_dialogue += f"\n\nAssistant: {dict_message['content']}"
 
     inputs = {
-        "prompt": final_prompt,
+        "prompt": f"{string_dialogue}\n\nUser: {prompt_input}\n\nAssistant:",
         "temperature": temperature,
         "top_p": top_p,
-        "system_prompt": "You are a helpful assistant focused only on medical topics."
+        "system_prompt": system_prompt
     }
 
-    st.write("Debug Input to Replicate:", inputs)
+    output = replicate.run(llm, input=inputs)
+    response_text = ''.join(output).strip()
+    if not is_medical:
+        response_text = assistant_intro + response_text
+    return response_text
 
-    try:
-        output = replicate.run(llm, input=inputs)
-    except replicate.exceptions.ReplicateError as e:
-        st.error("❌ Error while contacting Replicate API. Check your API token, model name, or quota.")
-        st.stop()
-
-    return output
-
-# Chat Input
+# User-provided prompt
 if prompt := st.chat_input(disabled=not replicate_api):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.write(prompt)
 
-# Generate assistant response
-if st.session_state.messages[-1]["role"] == "user":
+# Generate a new response if last message is not from assistant
+if st.session_state.messages[-1]["role"] != "assistant":
     with st.chat_message("assistant"):
-        with st.spinner("🧠 Thinking..."):
-            response = generate_llama_response(prompt, llm)
-            full_response = ''
-            placeholder = st.empty()
-            for item in response:
-                full_response += item
-                placeholder.markdown(full_response)
-            placeholder.markdown(full_response)
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+        with st.spinner("Thinking..."):
+            is_medical = is_medical_query(prompt)
+            response = generate_response(prompt, llm, is_medical)
+            st.write(response)
+            st.session_state.messages.append({"role": "assistant", "content": response})
